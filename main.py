@@ -41,7 +41,6 @@ class nlp16a:
         }
         self.microinst_table = dict()
         self.microinst_file = "micro_inst.txt"
-
         self.alu = alu_ref.ALU()
 
     #マイクロ命令定義ファイルの読み込み
@@ -146,19 +145,22 @@ class nlp16a:
         for micro_inst in self.microinst_table[inst]:
             print(micro_inst["type"]," : ",micro_inst["from"],"->",micro_inst["to"],file=sys.stderr)
             inst_type = micro_inst["type"].split(".")
+            cond = ""
             if len(inst_type) == 2:
                 func = inst_type[0]
                 #print(inst_type[1])
-                continue
+                cond = inst_type[1]
             elif len(inst_type) == 1:
                 func = inst_type[0]
             else:
                 print("不正なマイクロ命令",file=sys.stderr)
                 exit(1)
             inst_type = func.split("_")
+            func_type = ""
             if len(inst_type) == 2:
                 func = inst_type[1]
                 #print(inst_type[0])
+                func_type = inst_type[0]
             elif len(inst_type) == 1:
                 func = inst_type[0]
             else:
@@ -166,7 +168,11 @@ class nlp16a:
                 exit(1)
 
             result, Z, V, S, C = self.alu.ref_gen(self.reg_read(micro_inst["from"]),self.reg[0x10],func)#from (func) Acc -> to
-            self.reg_write(micro_inst["to"],result)
+            if cond != "3wd" or self.reg[0x12] == 0x03 or self.reg[0x13] == 0x03:#3wd命令ではないかもしくはRA2，RA3が3ワードモードである際に書き戻し
+                if func_type == "F":#フラグモードならフラグを書き戻し
+                    self.reg_write(micro_inst["to"],S<<3 | Z<<2 | V<<1 | C)
+                else:
+                    self.reg_write(micro_inst["to"],result)
             #print("0x{:04X},".format(result))
 
             #want_value, Z, V, S, C = self.alu.ref_gen(self.reg_read())
