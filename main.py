@@ -109,8 +109,10 @@ class nlp16a:
             return self.reg_read(self.reg[0x00] & 0xF)
         elif reg_num == 0x12:#RA2
             #return self.reg[self.reg[0x01] >>12]
+            #print("RA2",self.reg[0x01] >>12)
             return self.reg_read(self.reg[0x01] >>12)
-        elif reg_num == 0x12:#RA3
+        elif reg_num == 0x13:#RA3
+            #print("RA3",(self.reg[0x01] >>8) & 0xF)
             #return self.reg[(self.reg[0x01] >>8) & 0xF]
             return self.reg_read((self.reg[0x01] >>8) & 0xF)
         else:
@@ -173,7 +175,7 @@ class nlp16a:
                     self.reg_write(micro_inst["to"],S<<3 | Z<<2 | V<<1 | C)
                 else:
                     self.reg_write(micro_inst["to"],result)
-            #print("0x{:04X},".format(result))
+            print("0x{:04X},".format(result))
 
             #want_value, Z, V, S, C = self.alu.ref_gen(self.reg_read())
         self.reg_viewer()
@@ -212,5 +214,6 @@ if __name__ == "__main__":
     cpu.program_input(sys.stdin.readline())
     cpu.ram_viewer()
     cpu.reg_viewer()
+    cpu.execute_inst()
     cpu.execute_inst()
     cpu.execute_inst()

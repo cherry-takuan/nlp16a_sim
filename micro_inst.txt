@@ -1,11 +1,11 @@
 ;ADD命令
 #0x0A
-INC IP->IP,ACC
 MOV MEM->IR2
+INC IP->IP,ACC
 ;3ワードモード
 ;ピリオドから始まるサフィックスは条件実行。ここでは3ワード命令時に実行。
-INC.3wd IP->IP,ACC
 MOV.3wd MEM->IR3
+INC.3wd IP->IP,ACC
 ;実行
 MOV RA3->ACC
 ;プレフィックスがF_だとフラグ出力モード
@@ -14,12 +14,12 @@ ADD RA2->RA1
 
 ;SUB命令
 #0x09
-INC IP->IP,ACC
 MOV MEM->IR2
+INC IP->IP,ACC
 ;3ワードモード
 ;ピリオドから始まるサフィックスは条件実行。ここでは3ワード命令時に実行。
-INC.3wd IP->IP,ACC
 MOV.3wd MEM->IR3
+INC.3wd IP->IP,ACC
 ;実行
 MOV RA3->ACC
 ;プレフィックスがF_だとフラグ出力モード
