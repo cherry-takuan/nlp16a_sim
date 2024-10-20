@@ -3,7 +3,7 @@ import pprint
 import alu_ref
 import numpy as np
 import sys
-
+import time
 #メモリ関連の構成
 #シリアル等のメモリマップドデバイスはここに記述
 class MEM:
@@ -214,6 +214,6 @@ if __name__ == "__main__":
     cpu.program_input(sys.stdin.readline())
     cpu.ram_viewer()
     cpu.reg_viewer()
-    cpu.execute_inst()
-    cpu.execute_inst()
-    cpu.execute_inst()
+    while True:
+        cpu.execute_inst()
+        time.sleep(1)
