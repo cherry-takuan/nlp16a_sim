@@ -10,11 +10,14 @@ class MEM:
     def __init__(self):
         self.ram  = np.zeros(64*1024, dtype=np.uint16)
     def MEM_RD(self,address):
-        #print("MEM RD")
+        #print("MEM RD","0x{:04X},".format(address))
         return self.ram[address]
     def MEM_WR(self,address,data):
         #print("MEM WR")
-        self.ram[address] = data
+        if address < 0xF000:
+            self.ram[address] = data
+        elif address < 0xFF00:
+            print(chr(data),end="")
 
 #CPU本体
 class nlp16a:
@@ -170,12 +173,12 @@ class nlp16a:
                 exit(1)
 
             result, Z, V, S, C = self.alu.ref_gen(self.reg_read(micro_inst["from"]),self.reg[0x10],func)#from (func) Acc -> to
-            if cond != "3wd" or self.reg[0x12] == 0x03 or self.reg[0x13] == 0x03:#3wd命令ではないかもしくはRA2，RA3が3ワードモードである際に書き戻し
+            if cond != "3wd" or (self.reg[0x01] >>12) == 0x03 or ((self.reg[0x01] >>8) & 0xF) == 0x03:#3wd命令ではないかもしくはRA2，RA3が3ワードモードである際に書き戻し
                 if func_type == "F":#フラグモードならフラグを書き戻し
                     self.reg_write(micro_inst["to"],S<<3 | Z<<2 | V<<1 | C)
                 else:
                     self.reg_write(micro_inst["to"],result)
-            print("0x{:04X},".format(result))
+            #print("0x{:04X},".format(result))
 
             #want_value, Z, V, S, C = self.alu.ref_gen(self.reg_read())
         self.reg_viewer()
@@ -216,4 +219,4 @@ if __name__ == "__main__":
     cpu.reg_viewer()
     while True:
         cpu.execute_inst()
-        time.sleep(1)
+        time.sleep(0.2)
