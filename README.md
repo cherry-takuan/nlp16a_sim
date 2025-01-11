@@ -1,6 +1,12 @@
 # nlp-16a sim
 
-cat mikubug.hex | python3 main.py
+NLP-16Aのコンパイラを作るためにシミュレーション環境を作った。リポジトリが分かれてるのはホントにごめん。
+雑実装なのでめちゃめちゃ遅くて，実機と同じくらいの速度しか出ない。
+
+## 実行
+実行はpython 3.8以上で動作を確認。入出力はwin10のみで確認。Linuxはまだ動作確認していない。
+
+cat mikubug.hex | python main.py
 
 mikubugが起動するので後は[ここ](https://github.com/cherry-takuan/nlp/tree/master/nlp-16a/Software/Application)の通り操作すれば色々動く
 
