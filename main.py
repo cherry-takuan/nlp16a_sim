@@ -4,20 +4,50 @@ import alu_ref
 import numpy as np
 import sys
 import time
+
+# 入力関連
+import os
+if os.name == 'nt':  # Windows
+    import msvcrt
+    def getchar():
+        tmp = msvcrt.getch().decode('ascii')
+        if ord(tmp) == 3:
+            exit()
+        return ord(tmp)
+else:  # Linux / Mac
+    # 動作未確認
+    import tty
+    import termios
+    def getchar():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
 #メモリ関連の構成
 #シリアル等のメモリマップドデバイスはここに記述
 class MEM:
     def __init__(self):
         self.ram  = np.zeros(64*1024, dtype=np.uint16)
     def MEM_RD(self,address):
-        #print("MEM RD","0x{:04X},".format(address))
+        if False:
+            print("MEM RD","0x{:04X},".format(address))
+            exit(1)
+        if address == 0xFF01:
+            return 0x0000
+        elif address == 0xFF00:
+            return  getchar()
         return self.ram[address]
     def MEM_WR(self,address,data):
-        #print("MEM WR")
+        #print(address,":",data)
         if address < 0xF000:
             self.ram[address] = data
-        elif address < 0xFF00:
-            print(chr(data),end="")
+        elif address == 0xFF00:
+            print(chr(data),end="",flush=True)
 
 #CPU本体
 class nlp16a:
@@ -26,55 +56,31 @@ class nlp16a:
         self.MEM_WR = MEM_WR
         #内部状態
         #self.ram  = np.zeros(64*1024, dtype=np.uint16)
-        self.reg = np.zeros(0x14, dtype=np.uint16)
+        self.reg = np.zeros(0x10, dtype=np.uint16)
         self.int_enable = True
-        self.REG_TABLE = {
-            #RA1,RA2,RA3で再度レジスタにアクセスする際に使用
-            0x00    :0x00,    0x01    :0x01,    0x02    :0x02,    0x03    :0x03,
-            0x04    :0x04,    0x05    :0x05,    0x06    :0x06,    0x07    :0x07,
-            0x08    :0x08,    0x09    :0x09,    0x0A    :0x0A,    0x0B    :0x0B,
-            0x0C    :0x0C,    0x0D    :0x0D,    0x0E    :0x0E,    0x0F    :0x0F,
-            #正規のレジスタ
-            "IR1"   :0x00,    "IR2"   :0x01,    "IR3"   :0x03,    "IV"    :0x02,
-            "FLAG"  :0x04,    "A"     :0x05,    "B"     :0x06,    "C"     :0x07,
-            "D"     :0x08,    "E"     :0x09,    "F"     :0x0A,    "MEM"   :0x0B,
-            "ADDR"  :0x0C,    "IP"    :0x0D,    "SP"    :0x0E,    "ZR"    :0x0F,
-            #以下は特殊(実際のNLP-16Aでは上記のレジスタと同じようにはアクセスできないが，マイクロ命令を実装する上で簡単になるので加えた)
-            "ACC"   :0x10,    "RA1"   :0x11,    "RA2"   :0x12,    "RA3"   :0x13
+        self.ALU_T = {
+            0x00    :"A",
+            0x0A    :"ADD",     0x0E:"ADC",
+            0x09    :"SUB",     0x0D:"SBB",
+            0x1B    :"INC",     0x1F:"INCC",
+            0x18    :"DEC",     0x1C:"DECB",
+            0x06    :"AND",
+            0x12    :"OR",
+            0x14    :"NOT",
+            0x16    :"XOR",
+            0x20    :"SHL",     0x30    :"SHR",
+            0x24    :"SAL",     0x34    :"SAR",
+            0x22    :"ROL",     0x32    :"ROR"
         }
-        self.microinst_table = dict()
-        self.microinst_file = "micro_inst.txt"
+        self._inst=0
+        self._RA1=0
+        self._RA2=0
+        self._RA3=0
+        self._branch=0
+        self._ACC = 0
+
         self.alu = alu_ref.ALU()
 
-    #マイクロ命令定義ファイルの読み込み
-    def microinst_input(self)->dict:
-        with open(self.microinst_file,encoding="utf_8") as f:
-            inst_bin = 0x00
-            inst_string = list()
-            for s_line in f:
-                s_line = s_line[:-1]
-                if s_line == "" or s_line[0] == ";":
-                    continue
-                elif s_line[0] == "#":
-                    if len(inst_string) != 0:
-                        self.microinst_table[inst_bin] = inst_string
-                    
-                    inst_bin = int(s_line[1:],0)
-                    #print(inst_bin,file=sys.stderr)
-                    inst_string = list()
-                else:
-                    inst = re.split(r'\s+|->', s_line)
-                    if len(inst) != 3:
-                        print("不正なフォーマットです",file=sys.stderr)
-                        exit(1)
-                    inst_dict = dict()
-                    inst_dict["type"] = inst[0]
-                    inst_dict["from"] = inst[1]
-                    inst_dict["to"] = inst[2]
-                    inst_string.append(inst_dict)
-        if len(inst_string) != 0:
-            self.microinst_table[inst_bin] = inst_string
-        return self.microinst_table
     #プログラム転送(別に必ず使う必要はない)
     def program_input(self,program_bin,start_address = 0):
         program_bin = list(program_bin)
@@ -94,101 +100,141 @@ class nlp16a:
                 print(e,file=sys.stderr)
                 exit(1)
             else:
-                #print("0x{:04X},".format(data),end="",file=sys.stderr)
-                #self.ram[address] = data
                 self.MEM_WR(address,data)
                 address += 1
+
     #レジスタ読み書きのインターフェイス
     #MEMやRA1等のレジスタとして本当に触るわけではないものの処理
-    def reg_read(self,reg_name):
-        #print("RD:",reg_name)
-        reg_num = self.REG_TABLE[reg_name]
+    def reg_read(self,reg_num):
         if reg_num == 0x0B:#MEM
             return self.MEM_RD(self.reg[0x0C])
-        elif reg_num == 0x01:#RA1
+        elif reg_num == 0x01:#IR2
             return self.reg[0x01]&0xFF
-        elif reg_num == 0x11:#RA1
-            #return self.reg[self.reg[0x00] & 0xF]
-            return self.reg_read(self.reg[0x00] & 0xF)
-        elif reg_num == 0x12:#RA2
-            #return self.reg[self.reg[0x01] >>12]
-            #print("RA2",self.reg[0x01] >>12)
-            return self.reg_read(self.reg[0x01] >>12)
-        elif reg_num == 0x13:#RA3
-            #print("RA3",(self.reg[0x01] >>8) & 0xF)
-            #return self.reg[(self.reg[0x01] >>8) & 0xF]
-            return self.reg_read((self.reg[0x01] >>8) & 0xF)
+        elif reg_num == 0x0F:
+            return 0
         else:
             return self.reg[reg_num]
-    def reg_write(self,reg_names,data):
-        regs = reg_names.split(",")
-        for reg_name in regs:
-            #print("WR:",reg_name)
-            reg_num = self.REG_TABLE[reg_name]
+    def reg_write(self,reg_num,data):
+        if self._branch == True:
             if reg_num == 0x0B:
-                self.MEM_RD(self.reg[0x0C],data)
-            elif reg_num == 0x11:#RA1
-                self.reg[self.reg[0x00] & 0xF] = data
-            elif reg_num == 0x12:#RA2
-                self.reg[self.reg[0x01] >>12] = data
-            elif reg_num == 0x12:#RA3
-                self.reg[(self.reg[0x01] >>8) & 0xF] = data
+                self.MEM_WR(self.reg[0x0C],data)
+            elif (reg_num == 0x0D) or (reg_num == 0x0E):
+                self.reg[reg_num] = data
+                self.reg[0x0C] = data
+            elif reg_num == 0x0F:
+                pass
             else:
                 self.reg[reg_num] = data
-    #1命令実行
-    def execute_inst(self):
-        self.reg[0x0C] = self.reg[0x0D] #ADDR <- IP
-        #self.reg[0x00] = self.ram[self.reg[0x0C]] # IR1 <- RAM[ADDR]
-        self.reg[0x00] = self.MEM_RD(self.reg[0x0C]) # IR1 <- RAM[ADDR]
-        inst = self.reg[0x00]>>8
-        branch = (self.reg[0x00]>>4) & 0xF
-        RA1 = self.reg[0x00] & 0xF
-        print("\033[31m","{:04X},".format(self.reg[0x0D]),"inst","{:02X},".format(inst),"branch","{:01X},".format(branch),"RA1","{:01X},".format(RA1),"\033[0m",file=sys.stderr)
+    def _ACC_set(self):
+        if self._branch == True:
+            self._ACC = self.reg_read(self._RA3)
+    def _IR2_load(self):
+        # 2nd word load
+        self.reg[0x01] = self.MEM_RD(self.reg[0x0C]) # IR2 <- RAM[ADDR]
         self.reg[0x0D] += 1 #IP <- IP+1
         self.reg[0x0C] = self.reg[0x0D] # ADDR <- IP
-        #1マイクロ命令を実行
-        for micro_inst in self.microinst_table[inst]:
-            print(micro_inst["type"]," : ",micro_inst["from"],"->",micro_inst["to"],file=sys.stderr)
-            inst_type = micro_inst["type"].split(".")
-            cond = ""
-            if len(inst_type) == 2:
-                func = inst_type[0]
-                #print(inst_type[1])
-                cond = inst_type[1]
-            elif len(inst_type) == 1:
-                func = inst_type[0]
-            else:
-                print("不正なマイクロ命令",file=sys.stderr)
-                exit(1)
-            inst_type = func.split("_")
-            func_type = ""
-            if len(inst_type) == 2:
-                func = inst_type[1]
-                #print(inst_type[0])
-                func_type = inst_type[0]
-            elif len(inst_type) == 1:
-                func = inst_type[0]
-            else:
-                print("不正なマイクロ命令",file=sys.stderr)
-                exit(1)
+        self._RA2 =  self.reg[0x01]>>12
+        self._RA3 = (self.reg[0x01]>>8 ) & 0x0F
+    def _IR3_load(self):
+        # 3rd word load
+        self.reg[0x03] = self.MEM_RD(self.reg[0x0C]) # IR3 <- RAM[ADDR]
+        self.reg[0x0D] += 1 #IP <- IP+1
+        self.reg[0x0C] = self.reg[0x0D] # ADDR <- IP
 
-            result, Z, V, S, C = self.alu.ref_gen(self.reg_read(micro_inst["from"]),self.reg[0x10],func)#from (func) Acc -> to
-            if cond != "3wd" or (self.reg[0x01] >>12) == 0x03 or ((self.reg[0x01] >>8) & 0xF) == 0x03:#3wd命令ではないかもしくはRA2，RA3が3ワードモードである際に書き戻し
-                if func_type == "F":#フラグモードならフラグを書き戻し
-                    self.reg_write(micro_inst["to"],S<<3 | Z<<2 | V<<1 | C)
-                else:
-                    self.reg_write(micro_inst["to"],result)
-            #print("0x{:04X},".format(result))
+    def _PUSH(self):
+        self.reg_write(0x0E,self.reg[0x0E]-1)
+        self.reg_write(0x0C,self.reg[0x0E])
+        self.reg_write(0x0B,self.reg_read(self._RA1))
+    def _POP(self):
+        self.reg_write(0x0C,self.reg[0x0E])
+        self.reg_write(self._RA1,self.MEM_RD(self.reg[0x0C]))
+        self.reg_write(0x0E,self.reg[0x0E]+1)
 
-            #want_value, Z, V, S, C = self.alu.ref_gen(self.reg_read())
-        self.reg_viewer()
+    def _LOAD(self):
+        self._ACC_set()
+        self.reg[0x0C] = self._EXE()
+        self.reg_write(self._RA1,self.reg_read(0x0B))
+    def _STORE(self):
+        self._ACC_set()
+        self.reg[0x0C] = self._EXE()
+        self.reg_write(0x0B,self.reg_read(self._RA1))
+
+    def _MOV(self):
+        if self._inst&0x4 == 0:
+            self._ACC = self.reg_read(self._RA3)
+        self.reg_write(self._RA1,self._EXE())
+    
+    def _CALL(self):
+        self._PUSH()
+        self._ACC = self.reg_read(self._RA3)
+        self.reg_write(self._RA1,self._EXE())
+
+    def _EXE(self):
+        if self._OP in self.ALU_T.keys():
+            result, Z, V, S, C = self.alu.ref_gen(self.reg_read(self._RA2),self._ACC,self.ALU_T[self._OP])#from (func) Acc -> to
+            if self._inst == 0x00:
+                self.reg_write(0x04, S<<3 | Z<<2 | V<<1 | C)
+            return result
+        else:
+            print("不正なALUオペコード:",self._OP)
+            exit(1)
+    def _branch_decode(self,branch):
+        inv = (branch & 0x01) == 0
+        shift = (branch>>1) & 0x03
+        flag = ((self.reg[0x04]>>shift)&0x01)==0
+        if (branch & 0x08) == 0:
+            flag = 0x01
+        return ((flag != 0) ^ inv) != 0
+    def execute_inst(self):
+        # 1st word load
+        self.reg[0x0C] = self.reg[0x0D] #ADDR <- IP
+        self.reg[0x00] = self.MEM_RD(self.reg[0x0C]) # IR1 <- RAM[ADDR]
+        self.reg[0x0D] += 1 #IP <- IP+1
+        self.reg[0x0C] = self.reg[0x0D] # ADDR <- IP
+
+        # bit field get
+        self._inst = self.reg[0x00]>>12
+        if self._inst&0x08 == 0:
+            self._inst &= 0x0C
+        self._branch = self._branch_decode((self.reg[0x00]>>4) & 0xF)
+        self._RA1 = self.reg[0x00] & 0xF
+        self._OP = ((self.reg[0x00]>>8) & 0xF) if (self._inst & 0x8 != 0) else ((self.reg[0x00]>>8) & 0x3F) # ALU opecode for EXE phase
+
+        if not (self._inst == 0xC or self._inst == 0xD):
+            # PUSH POP以外
+            self._IR2_load()
+            if self._RA2 == 0x03 or self._RA3 == 0x03:
+                self._IR3_load()
+            if self._inst == 0x0:
+                self._MOV()
+            elif self._inst == 0x8:
+                self._LOAD()
+            elif self._inst == 0x9:
+                self._STORE()
+            elif self._inst == 0xB:
+                self._CALL()
+            else:
+                print("Unknown opcode",self._inst,file=sys.stderr)
+        else:
+            # PUSH POP関連
+            if self._inst == 0xC:
+                self._POP()
+            else:
+                self._PUSH()
+        #self.reg_viewer()
     #レジスタ表示
     def reg_viewer(self):
-        for name in self.REG_TABLE.keys():
+        REG_T = {
+            "IR1"   :0x00,    "IR2"   :0x01,    "IR3"   :0x03,    "IV"    :0x02,
+            "FLAG"  :0x04,    "A"     :0x05,    "B"     :0x06,    "C"     :0x07,
+            "D"     :0x08,    "E"     :0x09,
+            "ADDR"  :0x0C,    "IP"    :0x0D,    "SP"    :0x0E
+        }
+        for name in REG_T.keys():
             try:
                 dmy = int(name)
             except Exception:
-                print(name,": [","{:04X}".format(self.reg[self.REG_TABLE[name]]),"]",end="",file=sys.stderr)
+                print(name,": [","{:04X}".format(self.reg[REG_T[name]]),"]",end="",file=sys.stderr)
             else:
                 continue
         print("",file=sys.stderr)
@@ -196,7 +242,7 @@ class nlp16a:
     #最後に使ったアドレス付近20を表示
     def ram_viewer(self):
         view_range = 20
-        last_address = self.reg[self.REG_TABLE["ADDR"]]
+        last_address = self.reg[self.REG_T["ADDR"]]
         print("\nRAM===============",file=sys.stderr)
         bias = last_address-int(view_range/2)
         if last_address < view_range/2:
@@ -213,10 +259,11 @@ class nlp16a:
 if __name__ == "__main__":
     ram = MEM()
     cpu = nlp16a(ram.MEM_RD,ram.MEM_WR)
-    cpu.microinst_input()
     cpu.program_input(sys.stdin.readline())
-    cpu.ram_viewer()
     cpu.reg_viewer()
-    while True:
-        cpu.execute_inst()
-        time.sleep(0.2)
+    try:
+        while True:
+            cpu.execute_inst()
+            #time.sleep(0.2)
+    except KeyboardInterrupt:
+        cpu.ram_viewer()

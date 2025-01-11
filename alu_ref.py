@@ -10,6 +10,9 @@ class ALU:
 
             "SHL"      :0b011111000001,
             "SHR"      :0b011111000011,
+            
+            "ROR"      :0b011111000001,#コードは仮
+            "ROL"      :0b011111000011,#コードは仮
 
             
             "AND"   :0b011111011000,
@@ -44,11 +47,18 @@ class ALU:
         return Z, V, S
 
     def ref_gen(self, A,B,func):
+        A = int(A)
+        B = int(B)
         want_value = 0
-        if func == "ADD":
+        C = 0
+        if func == "A":
+            want_value = A
+        elif func == "ADD":
             want_value = A + B
+            C = want_value>0xFFFF
         elif func == "SUB":
             want_value = A - B
+            C = want_value >= 0
         elif func == "INC":
             want_value = A+1
         elif func == "DEC":
@@ -64,14 +74,23 @@ class ALU:
         elif func == "SHL":
             want_value = A<<1
         elif func == "SHR":
-            want_value = A>>1
+            mask = 0xFFFF  # 8ビットマスク (11111111)
+            want_value = (A & mask) >> 1
         elif func == "MOV":
             want_value = A
+        elif func == "ROL":
+            want_value = A<<1
+            #want_value |= ((A&0x8000) != 0) * 0x01
+            want_value |= ((A&0x8000) != 0)
+        elif func == "ROR":
+            want_value = A>>1
+            #want_value |= ((A&0x01) != 0) * 0x8000
+            want_value |= ((A&0x01) != 0) << 15
         else:
             print("未定義ALU命令",func)
             exit(1)
-        C = want_value>0xFFFF
         want_value = self.Num_normalize(want_value)
+        #print(A,B,want_value)
         Z, V, S = self.flag_gen(A, B, want_value, func)
         return want_value, Z, V, S, C
     def cmp(self, A,B,func,result_value, result_flag):
