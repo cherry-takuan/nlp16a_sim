@@ -44,11 +44,12 @@ class MEM:
         return self.ram[address]
     def MEM_WR(self,address,data):
         #print(address,":",data)
-        if address < 0xF000:
+        if address <= 0xFEFF:
             self.ram[address] = data
         elif address == 0xFF00:
             print(chr(data),end="",flush=True)
-
+        elif address == 0xFF20:
+            print("\033[32m0x{:04X}\033[0m".format(data),flush=True)
 #CPU本体
 class nlp16a:
     def __init__(self,MEM_RD,MEM_WR):
